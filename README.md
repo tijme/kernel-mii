@@ -6,7 +6,7 @@
     <br/>
     <b>Cobalt Strike Beacon Object File foundation for kernel exploitation using CVE-2021-21551.</b>
     <br/>
-    <sup>Built by <a href="https://www.linkedin.com/in/tijme/">Tijme</a> at <a href="https://github.com/NorthwaveSecurity">Northwave Security</a>. Credits to <a href="https://github.com/lldre">Alex</a> for teaching me!</sup>
+    <sup>Built by <a href="https://www.linkedin.com/in/tijme/">Tijme</a>. Credits to <a href="https://github.com/lldre">Alex</a> for teaching me! Made possible by <a href="https://northwave-security.com/">Northwave Security</a> <img src="https://raw.githubusercontent.com/tijme/kernel-mii/master/.github/northwave.png"/></sup>
     <br/>
 </p>
 
