@@ -20,11 +20,15 @@ This is a Cobalt Strike (CS) Beacon Object File (BOF) which exploits CVE-2021-21
 
 ## Usage
 
+Clone this repository first. Then review the code, compile from source and use it in Cobalt Strike.
+
 **Compiling**
 
 	cl.exe /c .\KernelMii.c /Fo.\KernelMii.o
 
-**Running**
+**Usage**
+
+Load the `KernelMii.cna` script using the Cobalt Strike Script Manager. Then use the command below to execute the exploit.
 
     $ kernel_mii
 
