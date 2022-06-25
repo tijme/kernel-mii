@@ -88,6 +88,14 @@
 #include <winternl.h>
 
 /**
+ * Custom definitions
+ */
+#define SystemModuleInformation         0x0B
+#define STATUS_INFO_LENGTH_MISMATCH     0xC0000004
+#define ARBITRARY_READ_IOCTL            0x9b0c1ec4
+#define ARBITRARY_WRITE_IOCTL           0x9b0c1ec8
+
+/**
  * Load custom header files.
  */
 #include "headers/structs.h"

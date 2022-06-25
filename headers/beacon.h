@@ -54,7 +54,6 @@ DECLSPEC_IMPORT void    BeaconFormatInt(formatp * format, int value);
 DECLSPEC_IMPORT void   BeaconOutput(int type, char * data, int len);
 DECLSPEC_IMPORT void   BeaconPrintf(int type, char * fmt, ...);
 
-
 /* Token Functions */
 DECLSPEC_IMPORT BOOL   BeaconUseToken(HANDLE token);
 DECLSPEC_IMPORT void   BeaconRevertToken();
