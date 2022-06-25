@@ -15,7 +15,7 @@
 This is a Cobalt Strike (CS) Beacon Object File (BOF) which exploits CVE-2021-21551. It only overwrites the beacon process token with the system process token. But this BOF is mostly just a good foundation for further kernel exploitation via CS.
 
 <p align="center">
-    <img src="https://raw.githubusercontent.com/tijme/kernel-mii/master/.github/output.png" width="450"/>
+    <img src="https://raw.githubusercontent.com/tijme/kernel-mii/master/.github/output.png" />
 </p>
 
 ## Limitations
