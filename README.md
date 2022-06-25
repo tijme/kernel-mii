@@ -36,6 +36,7 @@ This is a Cobalt Strike (CS) Beacon Object File (BOF) which exploits CVE-2021-21
 
 * Load the vulnerable driver from memory instead of from disk.
 * Delete the vulnerable driver if it was not preinstalled.
+* Make the exploit stable & compatible with multiple Windows versions.
 
 ## Issues
 
