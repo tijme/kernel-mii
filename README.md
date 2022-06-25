@@ -18,6 +18,16 @@ This is a Cobalt Strike (CS) Beacon Object File (BOF) which exploits CVE-2021-21
     <img src="https://raw.githubusercontent.com/tijme/kernel-mii/master/.github/output.png" />
 </p>
 
+## Usage
+
+**Compiling**
+
+	cl.exe /c .\KernelMii.c /Fo.\KernelMii.o
+
+**Running**
+
+    $ kernel_mii
+
 ## Limitations
 
 * If the vulnerable driver is not installed, you need to be local admin to install it.
