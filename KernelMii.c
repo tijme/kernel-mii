@@ -6,7 +6,7 @@
  * But this BOF is mostly just a good foundation for further kernel exploitation via CS.
  * 
  * Author:
- *  - Tijme Gommers (github.com/tijme, twitter.com/tijme) *    
+ *  - Tijme Gommers (github.com/tijme, twitter.com/tijme)
  * 
  * Credits:
  *  - Alex (github.com/lldre)
