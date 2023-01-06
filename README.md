@@ -24,13 +24,17 @@ Clone this repository first. Then review the code, compile from source and use i
 
 **Compiling**
 
-	cl.exe /c .\KernelMii.c /Fo.\KernelMii.o
+    make
 
 **Usage**
 
 Load the `KernelMii.cna` script using the Cobalt Strike Script Manager. Then use the command below to execute the exploit.
 
     $ kernel_mii
+
+Alternatively (and for testing purposes), you can directly run the compiled executable. This will spawn a command prompt as SYSTEM.
+
+    $ .\KernelMii.x64.exe
 
 ## Limitations
 

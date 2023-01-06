@@ -1,5 +1,3 @@
-#pragma once
-
 /*
  * Beacon Object Files (BOF)
  * -------------------------
@@ -13,6 +11,8 @@
  * ChangeLog:
  *    1/25/2022: updated for 4.5
  */
+
+#pragma once
 
 /* data API */
 typedef struct {
