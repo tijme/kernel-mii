@@ -122,7 +122,7 @@
  */
 #ifdef BOF
     #define PRINT(...) { \
-        PRINT_DEBUG(__VA_ARGS__); \
+        BeaconPrintf(CALLBACK_OUTPUT, __VA_ARGS__); \
     }
 #else
     #define PRINT(...) { \
